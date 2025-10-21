@@ -1,0 +1,133 @@
+---
+title: "Mini Project - Group 3"
+output: html_document
+date: "2024-12-07"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Read Dataset
+
+```{r}
+loan_data <- read.csv("loan_data.csv")
+```
+
+### Choose Variables - Target & Co-Variate
+
+```{r}
+Y <- loan_data$loan_status  # Target variable (binary: 0/1)
+X <- scale(cbind(loan_data$person_age, 
+                 loan_data$person_income, 
+                 loan_data$loan_amnt, 
+                 loan_data$loan_int_rate, 
+                 loan_data$credit_score))  # Kovariat yang diskalakan
+n <- length(Y)  # Jumlah observasi
+
+summary(loan_data)
+```
+
+### Model 1 - Logistic Regression [Uninformative Prior]
+
+```{r}
+library(rjags)
+
+```
+
+```{r}
+# Tentukan MCMC settings
+burn <- 1000  # Burn-in phase
+iters <- 2000  # Kurangi jumlah iterasi (misalnya 2000)
+chains <- 4  # Gunakan lebih banyak chains untuk mempercepat konvergensi
+
+# Model dengan prior tidak informatif
+mod1 <- textConnection("model{
+   for(i in 1:n){
+     Y[i] ~ dbern(pi[i])  # Likelihood Bernoulli
+     logit(pi[i]) <- beta[1] + X[i,1]*beta[2] + X[i,2]*beta[3] + 
+                     X[i,3]*beta[4] + X[i,4]*beta[5] + X[i,5]*beta[6]  # Link function
+   }
+   for(j in 1:6){
+     beta[j] ~ dnorm(0, 0.01)  # Prior tidak informatif
+   }
+}")
+
+# Sampling subset data untuk mengurangi beban
+set.seed(123)  # Set seed untuk reproduktifitas
+sample_size <- min(2000, length(Y))  # Pilih subset data jika data sangat besar
+sample_indices <- sample(1:length(Y), sample_size)  # Ambil sampel acak
+
+# Data untuk model
+X_subset <- X[sample_indices, ]
+Y_subset <- Y[sample_indices]
+data1 <- list(Y = Y_subset, X = X_subset, n = length(Y_subset))
+
+# Jalankan model
+model1 <- jags.model(mod1, data = data1, n.chains = chains, quiet = TRUE, n.adapt = 500)
+
+# Burn-in
+update(model1, burn)
+
+# Ambil sampel setelah burn-in
+samps1 <- coda.samples(model1, variable.names = c("beta"), n.iter = iters)
+
+# Ringkasan hasil
+summary(samps1)
+plot(samps1)
+```
+
+### Model 2 - Logistic Regression [Informative Prior]
+
+```{r}
+# Tentukan MCMC settings
+burn <- 1000   # Burn-in phase
+iters <- 2000  # Kurangi jumlah iterasi
+chains <- 4    # Gunakan lebih banyak chains untuk mempercepat konvergensi
+
+# Model dengan prior informatif
+mod2 <- textConnection("model{
+  for(i in 1:n){
+    Y[i] ~ dbern(pi[i])  # Likelihood Bernoulli
+    logit(pi[i]) <- beta[1] + X[i,1]*beta[2] + X[i,2]*beta[3] + 
+                    X[i,3]*beta[4] + X[i,4]*beta[5] + X[i,5]*beta[6]
+  }
+  for(j in 1:6){
+    beta[j] ~ dnorm(0, 1)  # Prior informatif
+  }
+}")
+
+# Sampling subset data untuk mengurangi beban (jika dataset besar)
+set.seed(123)  # Set seed untuk reproduktifitas
+sample_size <- min(2000, length(Y))  # Ambil subset data dengan ukuran 2000 atau sesuai
+sample_indices <- sample(1:length(Y), sample_size)  # Ambil sampel acak
+
+# Data untuk model
+X_subset <- X[sample_indices, ]
+Y_subset <- Y[sample_indices]
+data2 <- list(Y = Y_subset, X = X_subset, n = length(Y_subset))
+
+# Jalankan model
+model2 <- jags.model(mod2, data = data2, n.chains = chains, quiet = TRUE, n.adapt = 500)
+
+# Burn-in
+update(model2, burn)  
+
+# Ambil sampel setelah burn-in
+samps2 <- coda.samples(model2, variable.names = c("beta"), n.iter = iters)
+
+# Ringkasan hasil
+summary(samps2)
+plot(samps2)
+```
+
+### Check Convergence
+
+```{r}
+gelman.diag(samps1)
+gelman.diag(samps2)
+```
+
+-   **Tidak ada masalah konvergensi**: Nilai PSRF yang mendekati atau sama dengan 1 menunjukkan bahwa model telah mencapai konvergensi dengan baik, baik secara individu per parameter (`beta[1]` sampai `beta[6]`) maupun secara keseluruhan (multivariate PSRF).
+
+-   **Proses sampling sudah stabil**, dan Anda tidak perlu khawatir tentang masalah konvergensi. Model Anda dapat dianggap sudah cukup baik dari segi konvergensi.
